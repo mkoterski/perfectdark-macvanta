@@ -3,7 +3,7 @@
 # Perfect Dark macvanta — first-run setup for macOS Tahoe / Intel Mac
 #
 # Installs Xcode CLT, Homebrew, build dependencies, and SDL2.framework.
-# Validates any ROMs already placed in their expected data/ directories.
+# Validates any ROMs already present in the central roms/ directory.
 # Safe to re-run: all steps are idempotent.
 #
 # Usage:
@@ -12,11 +12,23 @@
 # Output:
 #   perfectdark-macvanta/logs/initial-setup-<timestamp>.log
 #
+# ROM layout (place files here before building):
+#   roms/pd.ntsc-final.z64   🇺🇸 N64 NTSC US v1.1 (recommended)
+#   roms/pd.ntsc-1.0.z64     🇺🇸 N64 NTSC US v1.0
+#   roms/pd.pal-final.z64    🇪🇺 N64 PAL
+#   roms/pd.jpn-final.z64    🇯🇵 N64 Japan
+#   roms/pd.gbc              🎮 GBC (optional — unlocks Transfer Pack content)
+#
 # CHANGELOG
+# v0.13 (2026-03-09) - Added region flag emojis 🇺🇸🇪🇺🇯🇵 to ROM status output
+# v0.12 (2026-03-09) - ROM check: added pd.gbc (GBC ROM, optional);
+#                      ROM check now reads from central roms/ directory
+# v0.11 (2026-03-09) - SDL2 install: drop -v flag (less verbose output);
+#                      ROM check moved to roms/ (not build-*/data/)
 # v0.10 (2026-03-09) - Initial version
 
 set -eo pipefail
-VERSION="0.10"
+VERSION="0.13"
 SCRIPT_DIR="${0:A:h}"
 TIMESTAMP="$(date '+%Y%m%d-%H%M')"
 LOG_DIR="$SCRIPT_DIR/logs"
@@ -41,7 +53,8 @@ fi
 echo "" | tee -a "$LOGFILE"
 echo "🔧 Step 1: Xcode Command Line Tools" | tee -a "$LOGFILE"
 if ! xcode-select -p &>/dev/null; then
-  echo "   Not found — launching installer. Complete the GUI prompt, then re-run." | tee -a "$LOGFILE"
+  echo "   Not found — launching installer." | tee -a "$LOGFILE"
+  echo "   Complete the GUI prompt, then re-run this script." | tee -a "$LOGFILE"
   xcode-select --install
   exit 0
 fi
@@ -86,12 +99,13 @@ if [[ ! -d "$SDL2_FW" ]]; then
   SDL2_DMG="$(mktemp /tmp/SDL2-XXXXXX.dmg)"
   if curl -fsSL "https://libsdl.org/release/SDL2-${SDL2_VER}.dmg" -o "$SDL2_DMG" 2>&1 | tee -a "$LOGFILE"; then
     hdiutil attach "$SDL2_DMG" -mountpoint /Volumes/SDL2tmp -quiet
-    sudo cp -vr /Volumes/SDL2tmp/SDL2.framework /Library/Frameworks/ 2>&1 | tee -a "$LOGFILE"
+    # -r only: suppress per-file output, still copies correctly
+    sudo cp -r /Volumes/SDL2tmp/SDL2.framework /Library/Frameworks/ 2>&1 | tee -a "$LOGFILE"
     hdiutil detach /Volumes/SDL2tmp -quiet
     rm -f "$SDL2_DMG"
     echo "   ✅ SDL2.framework installed at $SDL2_FW" | tee -a "$LOGFILE"
   else
-    echo "   ❌ Download failed — check network connection and retry." | tee -a "$LOGFILE"
+    echo "   ❌ SDL2 download failed. Check network and retry." | tee -a "$LOGFILE"
     exit 1
   fi
 else
@@ -101,13 +115,15 @@ fi
 
 # ── Step 5: ROM status ────────────────────────────────────────────────────────
 
-# Each ROM ID requires a separate cmake build and its own binary.
-# Place ROMs at the paths shown below before running pdmv-build-macos.sh.
-# MD5 checksums from the upstream fgsfdsfgs/perfect_dark README.
+# ROMs live in the central roms/ directory (gitignored).
+# The build script copies N64 ROMs into build-<romid>/data/ automatically.
+# The GBC ROM is also copied into data/ — it unlocks Transfer Pack content.
+# MD5 checksums for N64 ROMs from fgsfdsfgs/perfect_dark README.
+# Note: ntsc-1.0 is supported but has known gameplay bugs upstream.
 
 echo "" | tee -a "$LOGFILE"
 echo "🎮 Step 5: ROM status" | tee -a "$LOGFILE"
-echo "   Place ROM files at these paths before building:" | tee -a "$LOGFILE"
+echo "   Checking roms/ directory: $SCRIPT_DIR/roms/" | tee -a "$LOGFILE"
 echo "" | tee -a "$LOGFILE"
 
 declare -A ROM_MD5=(
@@ -116,23 +132,40 @@ declare -A ROM_MD5=(
   [pal-final]="d9b5cd305d228424891ce38e71bc9213"
   [jpn-final]="538d2b75945eae069b29c46193e74790"
 )
+declare -A ROM_LABEL=(
+  [ntsc-final]="🇺🇸 NTSC US v1.1 (recommended)"
+  [ntsc-1.0]="🇺🇸 NTSC US v1.0"
+  [pal-final]="🇪🇺 PAL"
+  [jpn-final]="🇯🇵 Japan"
+)
+
+echo "   N64 ROMs (required — at least ntsc-final):" | tee -a "$LOGFILE"
 for rid in ntsc-final ntsc-1.0 pal-final jpn-final; do
-  ROM_PATH="$SCRIPT_DIR/perfect_dark/build-$rid/data/pd.$rid.z64"
+  ROM_PATH="$SCRIPT_DIR/roms/pd.$rid.z64"
+  LABEL="${ROM_LABEL[$rid]}"
   if [[ -f "$ROM_PATH" ]]; then
     ACTUAL="$(md5 -q "$ROM_PATH")"
     EXPECTED="${ROM_MD5[$rid]}"
     if [[ "$ACTUAL" == "$EXPECTED" ]]; then
-      echo "   ✅ $rid — $(du -h "$ROM_PATH" | cut -f1)  MD5 OK" | tee -a "$LOGFILE"
+      echo "   ✅ $LABEL — $(du -h "$ROM_PATH" | cut -f1)  MD5 OK" | tee -a "$LOGFILE"
     else
-      echo "   ⚠️  $rid — MD5 MISMATCH" | tee -a "$LOGFILE"
+      echo "   ⚠️  $LABEL — MD5 MISMATCH" | tee -a "$LOGFILE"
       echo "       got:      $ACTUAL" | tee -a "$LOGFILE"
       echo "       expected: $EXPECTED" | tee -a "$LOGFILE"
     fi
   else
-    echo "   · $rid — not present" | tee -a "$LOGFILE"
-    echo "       → $ROM_PATH" | tee -a "$LOGFILE"
+    echo "   · $LABEL — not present → roms/pd.$rid.z64" | tee -a "$LOGFILE"
   fi
 done
+
+echo "" | tee -a "$LOGFILE"
+echo "   GBC ROM (optional — unlocks Transfer Pack content):" | tee -a "$LOGFILE"
+GBC_PATH="$SCRIPT_DIR/roms/pd.gbc"
+if [[ -f "$GBC_PATH" ]]; then
+  echo "   ✅ 🎮 pd.gbc — $(du -h "$GBC_PATH" | cut -f1)  present" | tee -a "$LOGFILE"
+else
+  echo "   · 🎮 pd.gbc — not present (optional) → roms/pd.gbc" | tee -a "$LOGFILE"
+fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
@@ -141,9 +174,10 @@ echo "════════════════════════�
 echo "✅ pdmv-initial-setup.sh v$VERSION complete!" | tee -a "$LOGFILE"
 echo "" | tee -a "$LOGFILE"
 echo "   Next steps:" | tee -a "$LOGFILE"
-echo "   1. Place at least one ROM in the path shown above" | tee -a "$LOGFILE"
-echo "   2. ./pdmv-build-macos.sh                     # builds ntsc-final (default)" | tee -a "$LOGFILE"
-echo "   3. ./pdmv-build-macos.sh --rom pal-final      # build a second region" | tee -a "$LOGFILE"
-echo "   4. ./run-pdmv-macos.sh                        # launch ntsc-final" | tee -a "$LOGFILE"
-echo "   5. ./run-pdmv-macos.sh --rom pal-final        # launch PAL" | tee -a "$LOGFILE"
+echo "   1. Place ROM(s) in roms/  (see paths above)" | tee -a "$LOGFILE"
+echo "   2. ./pdmv-build-macos.sh                     # 🇺🇸 builds ntsc-final (default)" | tee -a "$LOGFILE"
+echo "   3. ./pdmv-build-macos.sh --rom pal-final      # 🇪🇺 build PAL" | tee -a "$LOGFILE"
+echo "   4. ./pdmv-build-macos.sh --rom jpn-final      # 🇯🇵 build Japan" | tee -a "$LOGFILE"
+echo "   5. ./run-pdmv-macos.sh                        # launch ntsc-final" | tee -a "$LOGFILE"
+echo "   6. ./run-pdmv-macos.sh --rom pal-final        # launch PAL" | tee -a "$LOGFILE"
 echo "════════════════════════════════════════════════════════════════" | tee -a "$LOGFILE"

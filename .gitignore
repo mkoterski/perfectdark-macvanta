@@ -1,0 +1,13 @@
+# Upstream game source — cloned automatically by pdmv-build-macos.sh
+perfect_dark/
+
+# Build artefacts
+*.dmg
+*.z64
+*.n64
+
+# Script logs
+logs/
+
+# macOS noise
+.DS_Store

@@ -3,10 +3,10 @@
 # Perfect Dark macvanta — Intel Mac / macOS Tahoe launcher
 #
 # Usage:
-#   ./run-pdmv-macos.sh                        # launch ntsc-final with OpenGL
-#   ./run-pdmv-macos.sh --rom pal-final        # launch PAL region
-#   ./run-pdmv-macos.sh --opengl               # force OpenGL (default on Intel)
-#   ./run-pdmv-macos.sh --restore-cfg          # restore latest pd.ini backup and exit
+#   ./run-pdmv-macos.sh                    # launch ntsc-final with OpenGL
+#   ./run-pdmv-macos.sh --rom pal-final    # launch PAL region
+#   ./run-pdmv-macos.sh --opengl           # force OpenGL (default on Intel)
+#   ./run-pdmv-macos.sh --restore-cfg      # restore latest pd.ini backup and exit
 #
 # Backend handling:
 #   Default is OpenGL — required on Intel Mac. The port uses OpenGL 3.0+ via
@@ -17,30 +17,48 @@
 #   pd.ini is backed up before each session and restored on clean exit,
 #   Ctrl-C (SIGINT), or SIGTERM via trap — same pattern as starship-macalfa.
 #
+# Log output:
+#   logs/run-<romid>-<timestamp>.log   ← top-level logs/, last 5 runs kept per region
+#   logs/pd.ini.backup-<romid>-<timestamp>
+#
 # CHANGELOG
+# v0.12 (2026-03-09) - Log moved to top-level logs/ (consistent with build script,
+#                      survives perfect_dark/ deletion); INI_BACKUP moved to same
+#                      top-level logs/ so --restore-cfg finds them correctly;
+#                      log rotation: keep last 5 run logs per ROMID
 # v0.11 (2026-03-09) - Multi-ROM --rom flag; per-region BUILD_DIR/BINARY;
 #                      DYLD_FRAMEWORK_PATH for SDL2.framework;
 #                      pd.ini backup/restore; --restore-cfg
 # v0.10 (2026-03-09) - Initial version
 
 set -eo pipefail
-VERSION="0.11"
+VERSION="0.12"
 SCRIPT_DIR="${0:A:h}"
+LOG_KEEP=5   # number of run logs to retain per ROMID
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
 ROMID="ntsc-final"
-BACKEND="opengl"  # Intel Mac default — Metal not supported by this port
+BACKEND="opengl"   # Intel Mac default — Metal not supported by this port
 RESTORE_CFG=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --rom)         ROMID="$2";    shift 2 ;;
+    --rom)         ROMID="$2"; shift 2 ;;
     --opengl)      BACKEND="opengl"; shift ;;
     --restore-cfg) RESTORE_CFG=1; shift ;;
     *) echo "Usage: $0 [--rom ntsc-final|ntsc-1.0|pal-final|jpn-final] [--opengl] [--restore-cfg]" >&2; exit 1 ;;
   esac
 done
+
+# Region label for log output
+case "$ROMID" in
+  ntsc-final) REGION_LABEL="🇺🇸 NTSC US v1.1" ;;
+  ntsc-1.0)   REGION_LABEL="🇺🇸 NTSC US v1.0" ;;
+  pal-final)  REGION_LABEL="🇪🇺 PAL" ;;
+  jpn-final)  REGION_LABEL="🇯🇵 Japan" ;;
+  *)          REGION_LABEL="$ROMID" ;;
+esac
 
 REPO_DIR="$SCRIPT_DIR/perfect_dark"
 BUILD_DIR="$REPO_DIR/build-$ROMID"
@@ -48,28 +66,33 @@ BINARY="$BUILD_DIR/pd.$ROMID"
 DATA_DIR="$BUILD_DIR/data"
 INI="$BUILD_DIR/pd.ini"
 TIMESTAMP="$(date '+%Y%m%d-%H%M')"
-LOGFILE="$BUILD_DIR/logs/run-pdmv-$TIMESTAMP.log"
-INI_BACKUP="$BUILD_DIR/logs/pd.ini.backup-$TIMESTAMP"
 
-mkdir -p "$BUILD_DIR/logs"
+# Logs live at top-level logs/ — consistent with pdmv-build-macos.sh,
+# and survives rm -rf perfect_dark/ if ever needed.
+LOG_DIR="$SCRIPT_DIR/logs"
+LOGFILE="$LOG_DIR/run-$ROMID-$TIMESTAMP.log"
+INI_BACKUP="$LOG_DIR/pd.ini.backup-$ROMID-$TIMESTAMP"
+
+mkdir -p "$LOG_DIR"
 
 # ── Restore mode ──────────────────────────────────────────────────────────────
 
 if (( RESTORE_CFG )); then
-  LATEST_BAK="$(ls -t "$BUILD_DIR/logs"/pd.ini.backup-* 2>/dev/null | head -1 || true)"
+  LATEST_BAK="$(ls -t "$LOG_DIR"/pd.ini.backup-$ROMID-* 2>/dev/null | head -1 || true)"
   if [[ -n "$LATEST_BAK" ]]; then
     cp "$LATEST_BAK" "$INI"
     echo "✅ Restored: $INI"
     echo "   From: $LATEST_BAK"
   else
-    echo "⚠️  No pd.ini backup found in $BUILD_DIR/logs/" >&2; exit 1
+    echo "⚠️  No pd.ini backup found for $ROMID in $LOG_DIR/" >&2; exit 1
   fi
   exit 0
 fi
 
 echo "🎮 run-pdmv-macos.sh v$VERSION — $(date)" | tee -a "$LOGFILE"
-echo "   ROMID:   $ROMID" | tee -a "$LOGFILE"
+echo "   ROMID:   $ROMID  ($REGION_LABEL)" | tee -a "$LOGFILE"
 echo "   Backend: $BACKEND (Intel Mac — OpenGL only)" | tee -a "$LOGFILE"
+echo "   Log:     $LOGFILE" | tee -a "$LOGFILE"
 
 # ── Config backup + trap restore ──────────────────────────────────────────────
 
@@ -84,6 +107,7 @@ _restore_ini() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [info] pd.ini restored from backup" | tee -a "$LOGFILE"
   fi
 }
+
 trap _restore_ini EXIT INT TERM
 
 if [[ -f "$INI" ]]; then
@@ -101,7 +125,7 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') [info] Preflight checks..." | tee -a "$LOGFIL
 
 if [[ ! -f "$BINARY" ]]; then
   echo "$(date '+%Y-%m-%d %H:%M:%S') [error] Binary not found: $BINARY" | tee -a "$LOGFILE"
-  echo "         Run: ./pdmv-build-macos.sh --rom $ROMID" | tee -a "$LOGFILE"
+  echo "   Run: ./pdmv-build-macos.sh --rom $ROMID" | tee -a "$LOGFILE"
   exit 1
 fi
 
@@ -112,7 +136,7 @@ if [[ ! -f "$ROM_FILE" ]]; then
 fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') [info] Binary: $(du -h "$BINARY" | cut -f1)" | tee -a "$LOGFILE"
-echo "$(date '+%Y-%m-%d %H:%M:%S') [info] ROM:    $(du -h "$ROM_FILE" | cut -f1)" | tee -a "$LOGFILE"
+echo "$(date '+%Y-%m-%d %H:%M:%S') [info] ROM:    $(du -h "$ROM_FILE" | cut -f1)  [$REGION_LABEL]" | tee -a "$LOGFILE"
 
 # ── DYLD paths ────────────────────────────────────────────────────────────────
 
@@ -127,3 +151,32 @@ echo "" | tee -a "$LOGFILE"
 echo "$(date '+%Y-%m-%d %H:%M:%S') [info] Launching Perfect Dark ($ROMID, OpenGL)..." | tee -a "$LOGFILE"
 cd "$BUILD_DIR"
 ./"${BINARY:t}" 2>&1 | tee -a "$LOGFILE"
+EXIT_CODE=${pipestatus[1]}
+
+echo "" | tee -a "$LOGFILE"
+if [[ $EXIT_CODE -eq 0 ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [info] Perfect Dark exited cleanly (code 0)" | tee -a "$LOGFILE"
+else
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [warn] Perfect Dark exited with code $EXIT_CODE" | tee -a "$LOGFILE"
+fi
+
+# ── Log rotation ──────────────────────────────────────────────────────────────
+
+# Keep only the last LOG_KEEP run logs for this ROMID.
+# Avoids unbounded log accumulation across many play sessions.
+
+RUN_LOGS=("${(@f)$(ls -t "$LOG_DIR"/run-$ROMID-*.log 2>/dev/null)}")
+if (( ${#RUN_LOGS[@]} > LOG_KEEP )); then
+  TO_DELETE=("${RUN_LOGS[@]:$LOG_KEEP}")
+  for old in "${TO_DELETE[@]}"; do
+    rm -f "$old"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [info] Log rotated: ${old:t}" | tee -a "$LOGFILE"
+  done
+fi
+
+echo "" | tee -a "$LOGFILE"
+echo "════════════════════════════════════════════════════════════════" | tee -a "$LOGFILE"
+echo "✅ run-pdmv-macos.sh v$VERSION complete!" | tee -a "$LOGFILE"
+echo "   📄 $LOGFILE" | tee -a "$LOGFILE"
+echo "   💾 Keeping last $LOG_KEEP run logs for $ROMID" | tee -a "$LOGFILE"
+echo "════════════════════════════════════════════════════════════════" | tee -a "$LOGFILE"

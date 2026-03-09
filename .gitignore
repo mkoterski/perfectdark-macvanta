@@ -5,6 +5,7 @@ perfect_dark/
 *.dmg
 *.z64
 *.n64
+*.gbc
 
 # Script logs
 logs/

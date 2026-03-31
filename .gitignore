@@ -11,4 +11,4 @@ perfect_dark/
 logs/
 
 # macOS noise
-.DS_Store.DS_Store
+.DS_Store?

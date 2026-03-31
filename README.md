@@ -12,6 +12,15 @@ Follows the same conventions as
 
 ---
 
+## Confirmed Working
+
+**Intel Mac (x86_64)** — MacBook Pro 2020, Intel Core i7, macOS Tahoe 26.3:
+
+![PD Main Menu - Intel Mac](screenshots/screenshot20260331-110831.png)
+
+---
+
+
 ## Requirements
 
 - Intel Mac (x86_64)

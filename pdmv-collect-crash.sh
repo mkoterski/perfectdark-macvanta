@@ -3,8 +3,8 @@
 # Perfect Dark macvanta — macOS crash report collector
 #
 # Collects the most recent Perfect Dark crash reports from macOS
-# DiagnosticReports and copies them into build-<romid>/logs/ alongside
-# run logs. Attach the output folder when filing OpenGL bug reports.
+# DiagnosticReports and copies them into logs/crash-<romid>-<timestamp>/
+# at the project root. Attach the output folder when filing OpenGL bug reports.
 #
 # Usage:
 #   ./pdmv-collect-crash.sh                    # collect last 5 (ntsc-final)
@@ -13,11 +13,17 @@
 #   ./pdmv-collect-crash.sh --list             # list only, no copy
 #
 # CHANGELOG
+# v0.11 (2026-05-05) - Output dir moved to top-level logs/crash-<romid>-* (was
+#                      build-<romid>/logs/) for consistency with build/run/
+#                      package and so reports survive rm -rf perfect_dark/;
+#                      dropped now-stale PerfectDark* glob patterns — the
+#                      pd* glob already matches pd-macvanta-bin* crash reports
+#                      after the bundle rename
 # v0.10 (2026-03-09) - Initial version; adapted from collect-crash-5.sh v0.10;
 #                      multi-ROM --rom flag; searches pd.* and PerfectDark.*
 
 set -eo pipefail
-VERSION="0.10"
+VERSION="0.11"
 SCRIPT_DIR="${0:A:h}"
 TIMESTAMP="$(date '+%Y%m%d-%H%M')"
 ROMID="ntsc-final"
@@ -35,9 +41,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-REPO_DIR="$SCRIPT_DIR/perfect_dark"
-BUILD_DIR="$REPO_DIR/build-$ROMID"
-OUT_DIR="$BUILD_DIR/logs/crash-$TIMESTAMP"
+# Top-level logs/crash-* — survives rm -rf perfect_dark/ during stale-clone
+# recovery and matches the log-path convention of the other scripts.
+LOG_DIR="$SCRIPT_DIR/logs"
+OUT_DIR="$LOG_DIR/crash-$ROMID-$TIMESTAMP"
 LOGFILE="$OUT_DIR/collect-crash-$TIMESTAMP.log"
 
 mkdir -p "$OUT_DIR"
@@ -52,6 +59,10 @@ echo "   ROMID:  $ROMID" | tee -a "$LOGFILE"
 #   System: /Library/Logs/DiagnosticReports/
 # Both .ips (modern JSON-based) and .crash (legacy) formats are collected.
 # (N) suppresses errors on no match (zsh nullglob).
+#
+# The pd* glob catches both naming patterns:
+#   pd.<romid>*    — raw binary launched by run-pdmv-macos.sh
+#   pd-macvanta-bin* — inner binary launched via the .app bundle
 
 USER_DIAG="$HOME/Library/Logs/DiagnosticReports"
 SYS_DIAG="/Library/Logs/DiagnosticReports"
@@ -62,8 +73,7 @@ echo "🔍 Searching for Perfect Dark crash reports..." | tee -a "$LOGFILE"
 ALL_CRASHES=()
 for dir in "$USER_DIAG" "$SYS_DIAG"; do
   if [[ -d "$dir" ]]; then
-    for f in "$dir"/pd*.ips(N) "$dir"/pd*.crash(N) \
-              "$dir"/PerfectDark*.ips(N) "$dir"/PerfectDark*.crash(N); do
+    for f in "$dir"/pd*.ips(N) "$dir"/pd*.crash(N); do
       ALL_CRASHES+=("$f")
     done
   fi

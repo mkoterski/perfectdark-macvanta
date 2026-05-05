@@ -32,6 +32,10 @@
 #   jpn-final    🇯🇵 Japan         (separate binary required)
 #
 # CHANGELOG
+# v0.17 (2026-05-05) - Fix: replace fragile find-based binary detection with
+#                      direct pd.x86_64 lookup (Step 7) — find could match
+#                      pd.ini left over from a prior run and silently rename
+#                      the config file to pd.<romid>, breaking the build
 # v0.16 (2026-03-09) - Added region flag emojis 🇺🇸🇪🇺🇯🇵 to ROM layout,
 #                      ROMID descriptions, and Step 9 log output
 # v0.15 (2026-03-09) - Fix: upstream cmake names binary pd.<arch> (e.g. pd.x86_64),
@@ -48,7 +52,7 @@
 # v0.10 (2026-03-09) - Initial version
 
 set -eo pipefail
-VERSION="0.16"
+VERSION="0.17"
 SCRIPT_DIR="${0:A:h}"
 SDL2_VER="2.30.9"
 
@@ -187,14 +191,16 @@ echo "" | tee -a "$LOGFILE"
 echo "🔨 Step 7: Build ($(sysctl -n hw.logicalcpu) cores)" | tee -a "$LOGFILE"
 cmake --build "$BUILD_DIR" --target pd --clean-first -j"$(sysctl -n hw.logicalcpu)" 2>&1 | tee -a "$LOGFILE"
 
-# Upstream cmake names the output pd.<arch> (e.g. pd.x86_64) not pd.
-# Find whatever was built at depth 1, exclude known non-binaries, rename to pd.<romid>.
-BUILT_BIN="$(find "$BUILD_DIR" -maxdepth 1 -name "pd.*" \
-  ! -name "*.log" ! -name "*.cmake" ! -name "*.z64" ! -name "*.gbc" \
-  -type f | head -1)"
-if [[ -n "$BUILT_BIN" && "$BUILT_BIN" != "$BINARY" ]]; then
-  echo "   Renaming: ${BUILT_BIN:t} → pd.$ROMID" | tee -a "$LOGFILE"
-  mv "$BUILT_BIN" "$BINARY"
+# Upstream cmake names the output pd.<arch>. We force x86_64 in Step 6, so
+# the binary is always produced as pd.x86_64. Rename to pd.$ROMID for clarity.
+# A previous version used `find` here, which could match pd.ini left from a
+# prior session — `find` would then return pd.ini ahead of pd.x86_64 (sorts
+# first alphabetically) and `mv` would clobber the config. Direct path avoids
+# that entirely.
+CMAKE_OUTPUT="$BUILD_DIR/pd.x86_64"
+if [[ -f "$CMAKE_OUTPUT" && "$CMAKE_OUTPUT" != "$BINARY" ]]; then
+  echo "   Renaming: pd.x86_64 → pd.$ROMID" | tee -a "$LOGFILE"
+  mv "$CMAKE_OUTPUT" "$BINARY"
 fi
 
 # ── Step 8: Binary validation ─────────────────────────────────────────────────

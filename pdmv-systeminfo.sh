@@ -6,17 +6,22 @@
 # into a single text file. Called automatically by pdmv-collect-crash.sh.
 #
 # Usage:
-#   ./pdmv-systeminfo.sh                       # write to build-ntsc-final/logs/
-#   ./pdmv-systeminfo.sh --rom pal-final       # target PAL build dir
+#   ./pdmv-systeminfo.sh                       # write to top-level logs/
+#   ./pdmv-systeminfo.sh --rom pal-final       # snapshot for the PAL build
 #   ./pdmv-systeminfo.sh --out /some/dir       # write to specified directory
 #   ./pdmv-systeminfo.sh --print               # also print to stdout
 #
 # CHANGELOG
+# v0.11 (2026-05-05) - Default --out moved to top-level logs/ (was
+#                      build-<romid>/logs/) — consistent with build/run/package/
+#                      collect-crash and survives rm -rf perfect_dark/. Explicit
+#                      --out argument behaviour unchanged (used by collect-crash
+#                      to redirect into its own crash-* output directory).
 # v0.10 (2026-03-09) - Initial version; adapted from sysinfo-6.sh v0.11;
 #                      multi-ROM --rom flag; pd.ini config read; pd binary
 
 set -eo pipefail
-VERSION="0.10"
+VERSION="0.11"
 SCRIPT_DIR="${0:A:h}"
 TIMESTAMP="$(date '+%Y%m%d-%H%M')"
 ROMID="ntsc-final"
@@ -35,9 +40,11 @@ done
 
 REPO_DIR="$SCRIPT_DIR/perfect_dark"
 BUILD_DIR="$REPO_DIR/build-$ROMID"
-OUT_DIR="${OUT_DIR:-$BUILD_DIR/logs}"
+# Default OUT_DIR is top-level logs/ — collect-crash.sh overrides this with
+# --out to redirect output into its crash-<romid>-<timestamp>/ folder.
+OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/logs}"
 mkdir -p "$OUT_DIR"
-OUTFILE="$OUT_DIR/sysinfo-$TIMESTAMP.txt"
+OUTFILE="$OUT_DIR/sysinfo-$ROMID-$TIMESTAMP.txt"
 
 # Helper — write to file, optionally stdout
 # || true prevents set -e from firing on arithmetic false (PRINT_STDOUT=0)
